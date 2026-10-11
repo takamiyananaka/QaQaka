@@ -4,7 +4,7 @@
 
 **专为 Android 移动端现代 QQ 架构打造的轻量级体验增强与交互辅助工具**
 
-[![Release](https://img.shields.io/github/v/release/takamiyananaka/QQEmojiReactor?color=blue&logo=github)](https://github.com/takamiyananaka/QQEmojiReactor/releases)
+[![Release](https://img.shields.io/github/v/release/takamiyananaka/QaQaka?color=blue&logo=github)](https://github.com/takamiyananaka/QaQaka/releases)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Framework](https://img.shields.io/badge/Framework-LSPosed%20%7C%20Xposed-orange)](https://github.com/LSPosed/LSPosed)
 [![Target](https://img.shields.io/badge/Target-QQ%20NT%209.2.80%2B-green)](https://im.qq.com)
@@ -48,7 +48,7 @@
 
 ## 🚀 快速使用说明 (Quick Start)
 
-1. 从本仓库 [Releases 页面](https://github.com/takamiyananaka/QQEmojiReactor/releases) 获取最新发行版安装包；
+1. 从本仓库 [Releases 页面](https://github.com/takamiyananaka/QaQaka/releases) 获取最新发行版安装包；
 2. 在 LSPosed 管理器中启用 **QaQaka**，并在推荐作用域中勾选 **手机 QQ (`com.tencent.mobileqq`)**；
 3. 强制停止手机 QQ 并重新启动即可生效；
 4. 进入 QaQaka 主程序界面可按需进行个性化设置。
@@ -59,7 +59,7 @@
 
 非常欢迎大家体验和使用 **QaQaka**！
 
-- **问题反馈**：如在使用过程中遇到任何异常或偶发故障，欢迎提交 [GitHub Issues](https://github.com/takamiyananaka/QQEmojiReactor/issues) 并附上机型、系统版本与复现步骤；
+- **问题反馈**：如在使用过程中遇到任何异常或偶发故障，欢迎提交 [GitHub Issues](https://github.com/takamiyananaka/QaQaka/issues) 并附上机型、系统版本与复现步骤；
 - **需求与建议**：如果你有新的想法、功能需求或交互优化建议，十分欢迎在 Issues 中交流探讨；
 - **开发与迭代**：由于本项目属于个人业余维护，作者会在空闲时间认真阅览大家的每一条反馈，并根据技术可行性与通用价值，酌情参考排期并持续迭代。
 
