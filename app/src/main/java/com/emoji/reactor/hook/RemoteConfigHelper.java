@@ -52,6 +52,7 @@ public class RemoteConfigHelper {
     private static volatile String memoryCustomIconBase64 = null;
     private static final Map<String, Boolean> memoryFeatureMap = new java.util.concurrent.ConcurrentHashMap<>();
     private static final Map<String, String> memoryCustomAvatarMap = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<String, String> sUidToUinMap = new java.util.concurrent.ConcurrentHashMap<>();
     private static volatile boolean sAvatarsConfigLoaded = false;
     private static volatile XSharedPreferences xsp;
 
@@ -64,6 +65,7 @@ public class RemoteConfigHelper {
         memoryCustomIconBase64 = null;
         memoryFeatureMap.clear();
         memoryCustomAvatarMap.clear();
+        sUidToUinMap.clear();
         sAvatarsConfigLoaded = false;
         AppLogger.i(TAG, "已重置 QQ 进程内配置内存缓存");
     }
@@ -120,8 +122,14 @@ public class RemoteConfigHelper {
         }
 
         // 2. 双向映射互查
-        String mappedId = id.startsWith("u_") ? UidUinHelper.getUinFromUid(id) : UidUinHelper.getUidFromUin(id);
+        String mappedId = id.startsWith("u_") ? sUidToUinMap.get(id) : null;
+        if (mappedId == null || mappedId.isEmpty()) {
+            mappedId = id.startsWith("u_") ? UidUinHelper.getUinFromUid(id) : UidUinHelper.getUidFromUin(id);
+        }
         if (mappedId != null && !mappedId.isEmpty()) {
+            if (id.startsWith("u_")) {
+                sUidToUinMap.put(id, mappedId);
+            }
             String mappedPath = memoryCustomAvatarMap.get(mappedId);
             if (mappedPath != null && isFileValid(mappedPath)) {
                 memoryCustomAvatarMap.put(id, mappedPath);
@@ -253,6 +261,9 @@ public class RemoteConfigHelper {
         if (uid == null || uin == null) return;
         uid = uid.trim();
         uin = uin.trim();
+        if (uid.isEmpty() || uin.isEmpty()) return;
+        sUidToUinMap.put(uid, uin);
+        sUidToUinMap.put(uin, uid);
         String path = memoryCustomAvatarMap.get(uin);
         if (path != null) {
             memoryCustomAvatarMap.put(uid, path);

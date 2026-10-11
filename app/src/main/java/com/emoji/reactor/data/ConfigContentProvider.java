@@ -41,18 +41,34 @@ public class ConfigContentProvider extends ContentProvider {
     public Bundle call(@NonNull String method, @Nullable String arg, @Nullable Bundle extras) {
         Context ctx = getContext();
         String caller = getCallingPackage();
+        String selfPkg = (ctx != null) ? ctx.getPackageName() : "com.emoji.reactor";
         // 安全防御：严格校验调用方包名与 Uid，仅允许 QQ 宿主与模块自身进程访问，杜绝第三方恶意应用探测
         if (caller != null) {
-            String selfPkg = (ctx != null) ? ctx.getPackageName() : "com.emoji.reactor";
             if (!caller.equals(selfPkg) && !caller.equals("com.tencent.mobileqq") && !caller.equals("com.tencent.tim")) {
                 com.emoji.reactor.util.AppLogger.e("ConfigContentProvider", "拦截未经授权的第三方应用跨进程访问: " + caller, null);
                 throw new SecurityException("Unauthorized access from package: " + caller);
             }
-        }
-
-        if (arg != null && (arg.contains("..") || arg.contains("/") || arg.contains("\\"))) {
-            com.emoji.reactor.util.AppLogger.e("ConfigContentProvider", "拦截非法路径参数遍历: " + arg, null);
-            return null;
+        } else {
+            // caller 为空时，通过 Binder.getCallingUid() 进行 UID 级兜底校验
+            int callingUid = android.os.Binder.getCallingUid();
+            if (callingUid != android.os.Process.myUid() && callingUid != 1000) {
+                boolean authorized = false;
+                if (ctx != null) {
+                    String[] pkgs = ctx.getPackageManager().getPackagesForUid(callingUid);
+                    if (pkgs != null) {
+                        for (String p : pkgs) {
+                            if (p.equals(selfPkg) || p.equals("com.tencent.mobileqq") || p.equals("com.tencent.tim")) {
+                                authorized = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!authorized) {
+                    com.emoji.reactor.util.AppLogger.e("ConfigContentProvider", "拦截未经授权的 UID 跨进程访问: " + callingUid, null);
+                    throw new SecurityException("Unauthorized access from UID: " + callingUid);
+                }
+            }
         }
 
         if (METHOD_GET_CONFIG.equals(method)) {
@@ -91,6 +107,10 @@ public class ConfigContentProvider extends ContentProvider {
             }
             return bundle;
         } else if (METHOD_GET_AVATAR_BYTES.equals(method) && arg != null) {
+            if (arg.contains("..") || arg.contains("/") || arg.contains("\\")) {
+                com.emoji.reactor.util.AppLogger.e("ConfigContentProvider", "拦截非法头像参数路径遍历: " + arg, null);
+                return null;
+            }
             String uin = arg.trim();
             byte[] bytes = readAvatarBytes(uin);
             if (bytes != null && bytes.length > 0) {

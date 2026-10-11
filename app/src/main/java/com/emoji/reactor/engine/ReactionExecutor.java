@@ -28,6 +28,8 @@ public class ReactionExecutor {
     private static final Handler workerHandler;
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
     private static final AtomicBoolean isRunning = new AtomicBoolean(false);
+    private static volatile long lastStartTimeMs = 0L;
+    private static final long WATCHDOG_TIMEOUT_MS = 30000L; // 30秒看门狗超时自愈保护
 
     static {
         workerThread = new HandlerThread("EmojiReactor-Worker");
@@ -53,10 +55,19 @@ public class ReactionExecutor {
             return;
         }
 
+        // 看门狗保护：若上一次任务因极端异常超过30秒未释放，强制排空残留队列并自愈重置
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (isRunning.get() && (now - lastStartTimeMs > WATCHDOG_TIMEOUT_MS)) {
+            AppLogger.d(TAG, "ReactionExecutor 看门狗触发强制自愈复位 (超时 " + (now - lastStartTimeMs) + "ms)");
+            workerHandler.removeCallbacksAndMessages(null);
+            isRunning.set(false);
+        }
+
         if (!isRunning.compareAndSet(false, true)) {
             showToast(context, "正在执行上一轮贴表情，请稍候...");
             return;
         }
+        lastStartTimeMs = now;
 
         workerHandler.post(() -> {
             try {

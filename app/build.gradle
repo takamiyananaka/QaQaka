@@ -10,7 +10,7 @@ android {
         applicationId "com.emoji.reactor"
         minSdk 26
         targetSdk 34
-        versionCode 25
+        versionCode 28
         versionName "1.4.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"

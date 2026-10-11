@@ -312,7 +312,7 @@ public class CustomAvatarFeature extends BaseFeature {
 
     private static String extractRawIdFromObject(Object obj, int depth) {
         if (obj == null || depth > 2) return null;
-        if (depth > 0 && (obj instanceof View || obj instanceof Context || obj instanceof Drawable)) return null;
+        if (obj instanceof View || obj instanceof Context || obj instanceof Drawable) return null;
 
         if (obj instanceof String) {
             String str = ((String) obj).trim();
@@ -345,16 +345,19 @@ public class CustomAvatarFeature extends BaseFeature {
         };
         for (String f : possibleFields) {
             try {
-                Object val = XposedHelpers.getObjectField(obj, f);
-                if (val != null && !(val instanceof View) && !(val instanceof Context) && !(val instanceof Drawable) && !(val instanceof android.content.res.Resources)) {
-                    String extracted = extractRawIdFromObject(val, depth + 1);
-                    if (extracted != null) {
-                        tryLearnAvatarUrl(obj, extracted);
-                        return extracted;
+                Field field = XposedHelpers.findFieldIfExists(obj.getClass(), f);
+                if (field != null) {
+                    field.setAccessible(true);
+                    Object val = field.get(obj);
+                    if (val != null && !(val instanceof View) && !(val instanceof Context) && !(val instanceof Drawable) && !(val instanceof android.content.res.Resources)) {
+                        String extracted = extractRawIdFromObject(val, depth + 1);
+                        if (extracted != null) {
+                            tryLearnAvatarUrl(obj, extracted);
+                            return extracted;
+                        }
                     }
                 }
-            } catch (Exception e) {
-                // 频繁尝试取字段属性，属于正常试探
+            } catch (Throwable ignored) {
             }
         }
 
@@ -366,16 +369,19 @@ public class CustomAvatarFeature extends BaseFeature {
         };
         for (String g : possibleGetters) {
             try {
-                Object val = XposedHelpers.callMethod(obj, g);
-                if (val != null && !(val instanceof View) && !(val instanceof Context) && !(val instanceof Drawable) && !(val instanceof android.content.res.Resources)) {
-                    String extracted = extractRawIdFromObject(val, depth + 1);
-                    if (extracted != null) {
-                        tryLearnAvatarUrl(obj, extracted);
-                        return extracted;
+                Method m = XposedHelpers.findMethodExactIfExists(obj.getClass(), g);
+                if (m != null) {
+                    m.setAccessible(true);
+                    Object val = m.invoke(obj);
+                    if (val != null && !(val instanceof View) && !(val instanceof Context) && !(val instanceof Drawable) && !(val instanceof android.content.res.Resources)) {
+                        String extracted = extractRawIdFromObject(val, depth + 1);
+                        if (extracted != null) {
+                            tryLearnAvatarUrl(obj, extracted);
+                            return extracted;
+                        }
                     }
                 }
-            } catch (Exception e) {
-                // 正常试探方法
+            } catch (Throwable ignored) {
             }
         }
 
@@ -390,12 +396,11 @@ public class CustomAvatarFeature extends BaseFeature {
                             return extracted;
                         }
                     }
-                } catch (Exception e) {
-                    // 字段读取试探
+                } catch (Throwable ignored) {
                 }
             }
-        } catch (Exception e) {
-            AppLogger.d(TAG, "extractRawIdFromObject 深度反射安全跳过: " + e.getMessage());
+        } catch (Throwable t) {
+            AppLogger.d(TAG, "extractRawIdFromObject 深度反射安全跳过: " + t.getMessage());
         }
 
         return null;
@@ -406,12 +411,15 @@ public class CustomAvatarFeature extends BaseFeature {
         String[] urlFields = {"avatarUrl", "logo", "iconUrl", "url", "headUrl"};
         for (String f : urlFields) {
             try {
-                Object u = XposedHelpers.getObjectField(obj, f);
-                if (u instanceof String) {
-                    learnOidbToken((String) u, uin);
+                Field field = XposedHelpers.findFieldIfExists(obj.getClass(), f);
+                if (field != null) {
+                    field.setAccessible(true);
+                    Object u = field.get(obj);
+                    if (u instanceof String) {
+                        learnOidbToken((String) u, uin);
+                    }
                 }
-            } catch (Exception e) {
-                // 试探URL字段
+            } catch (Throwable ignored) {
             }
         }
     }
@@ -454,8 +462,8 @@ public class CustomAvatarFeature extends BaseFeature {
                 String u = extractRawIdFromObject(aio);
                 if (u != null) return u;
             }
-        } catch (Exception e) {
-            AppLogger.d(TAG, "AllInOne读取安全跳过: " + e.getMessage());
+        } catch (Throwable t) {
+            AppLogger.d(TAG, "AllInOne读取安全跳过: " + t.getMessage());
         }
         if (it.getExtras() != null) {
             for (String k : it.getExtras().keySet()) {
@@ -991,70 +999,79 @@ public class CustomAvatarFeature extends BaseFeature {
                 for (Method m : clazz.getDeclaredMethods()) {
                     String mName = m.getName();
                     if (mName.equals("dispatchDraw") || mName.equals("onDraw") || mName.equals("draw")) {
-                        if (m.getParameterTypes().length == 1 && m.getParameterTypes()[0] == Canvas.class && sHookedMethodSet.add(m)) {
+                        if (m.getParameterTypes().length == 1 && m.getParameterTypes()[0] == Canvas.class) {
                             XposedBridge.hookMethod(m, recentCanvasDrawHook);
                         }
                         continue;
                     }
                     if (mName.equals("onMeasure") || mName.equals("onLayout") || mName.equals("layout")
-                            || mName.equals("onTouchEvent") || mName.equals("dispatchTouchEvent") || mName.equals("onSizeChanged")
-                            || mName.equals("setVisibility") || mName.equals("setAlpha") || mName.equals("setId")
-                            || mName.equals("setEnabled") || mName.equals("setClickable") || mName.equals("setSelected")
-                            || mName.startsWith("get")) {
+                            || mName.equals("onTouchEvent") || mName.equals("dispatchTouchEvent") || mName.equals("onSizeChanged")) {
                         continue;
                     }
-                    boolean hasReferenceParam = false;
-                    for (Class<?> pType : m.getParameterTypes()) {
-                        if (!pType.isPrimitive()) {
-                            hasReferenceParam = true;
+                    Class<?>[] pTypes = m.getParameterTypes();
+                    if (pTypes.length == 0) continue;
+                    // 关键性能优化：只有包含复杂对象参数的方法才可能携带联系人数据，剔除所有基础数据类型setter
+                    boolean hasObjectParam = false;
+                    for (Class<?> pType : pTypes) {
+                        if (!pType.isPrimitive() && pType != String.class) {
+                            hasObjectParam = true;
                             break;
                         }
                     }
-                    if (!hasReferenceParam) continue;
+                    if (!hasObjectParam) continue;
 
-                    if (m.getParameterTypes().length >= 1 && m.getParameterTypes().length <= 3 && sHookedMethodSet.add(m)) {
-                        XposedBridge.hookMethod(m, new XC_MethodHook() {
-                            @Override
-                            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                                if (!isEnabledRuntime()) return;
-                                Object target = param.thisObject;
-                                String rawId = null;
-                                if (param.args != null) {
-                                    for (Object arg : param.args) {
-                                        rawId = extractRawIdFromObject(arg);
-                                        if (rawId != null) break;
+                    XposedBridge.hookMethod(m, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                            if (!isEnabledRuntime()) return;
+                            Object target = param.thisObject;
+                            if (!(target instanceof View)) return;
+                            View targetView = (View) target;
+
+                            String rawId = null;
+                            if (param.args != null) {
+                                for (Object arg : param.args) {
+                                    rawId = extractRawIdFromObject(arg);
+                                    if (rawId != null) break;
+                                }
+                            }
+
+                            // 关键守卫：仅当当前调用的方法明确携带了联系人数据对象时才处理；若是无数据关联的内部绘制/辅助方法，绝不误触
+                            if (rawId == null) {
+                                return;
+                            }
+
+                            String custom = RemoteConfigHelper.getCustomAvatarPath(rawId);
+                            if (custom != null) {
+                                Bitmap circleBm = getOrCreateCircleBitmap(rawId, custom);
+                                if (circleBm != null) {
+                                    if (targetView instanceof ViewGroup) {
+                                        applyOverlayToContainer((ViewGroup) targetView, rawId, circleBm);
+                                        AppLogger.i(TAG, "【会话列表头像容器精准拦截成功】ID=" + rawId);
+                                    } else if (targetView instanceof ImageView) {
+                                        targetView.setTag(ID_CUSTOM_AVATAR_TAG, rawId);
+                                        ((ImageView) targetView).setImageBitmap(circleBm);
+                                        AppLogger.i(TAG, "【会话列表ImageView精准拦截成功】ID=" + rawId);
+                                    } else {
+                                        // 自绘 View 仅打上 Tag，绝不在主线程调用父容器 addView/removeView 触发 Layout 风暴，由 recentCanvasDrawHook 纯 GPU 绘制！
+                                        targetView.setTag(ID_CUSTOM_AVATAR_TAG, rawId);
+                                        AppLogger.i(TAG, "【会话列表自绘View精准拦截成功】ID=" + rawId);
                                     }
                                 }
-                                if (rawId == null) {
-                                    rawId = extractRawIdFromObject(target);
-                                }
-                                if (rawId != null) {
-                                    boolean hasConfigured = RemoteConfigHelper.getAllConfiguredUins().contains(rawId);
-                                    String custom = RemoteConfigHelper.getCustomAvatarPath(rawId);
-                                    if (custom != null) {
-                                        Bitmap circleBm = getOrCreateCircleBitmap(rawId, custom);
-                                        if (circleBm != null) {
-                                            if (target instanceof ViewGroup) {
-                                                applyOverlayToContainer((ViewGroup) target, rawId, circleBm);
-                                                AppLogger.d(TAG, "【会话列表头像容器精准拦截成功】ID=" + rawId);
-                                            } else if (target instanceof ImageView) {
-                                                ((ImageView) target).setTag(ID_CUSTOM_AVATAR_TAG, rawId);
-                                                ((ImageView) target).setImageBitmap(circleBm);
-                                                AppLogger.d(TAG, "【会话列表ImageView精准拦截成功】ID=" + rawId);
-                                            }
-                                            return;
-                                        }
-                                    } else if (hasConfigured) {
-                                        if (target instanceof ViewGroup) {
-                                            applyOverlayToContainer((ViewGroup) target, null, null);
-                                        } else if (target instanceof ImageView) {
-                                            ((ImageView) target).setTag(ID_CUSTOM_AVATAR_TAG, null);
-                                        }
+                            } else {
+                                // 仅当此容器此前贴了受控头像且当前明确换成其他未受控用户时，才清理旧覆盖层
+                                Object currentTag = targetView.getTag(ID_CUSTOM_AVATAR_TAG);
+                                if (currentTag != null && !currentTag.equals(rawId)) {
+                                    targetView.setTag(ID_CUSTOM_AVATAR_TAG, null);
+                                    if (targetView instanceof ViewGroup) {
+                                        applyOverlayToContainer((ViewGroup) targetView, null, null);
+                                    } else if (targetView instanceof ImageView) {
+                                        ((ImageView) targetView).setImageBitmap(null);
                                     }
                                 }
                             }
-                        });
-                    }
+                        }
+                    });
                 }
                 AppLogger.i(TAG, "已成功挂载 " + clsName + " 会话头像组件探针！");
             } catch (Throwable t) {
@@ -1086,6 +1103,7 @@ public class CustomAvatarFeature extends BaseFeature {
                                 if (rawId == null) {
                                     rawId = extractRawIdFromObject(holder);
                                 }
+                                AppLogger.i(TAG, "【ChatsListAdapter】pos=" + pos + " -> rawId=" + rawId);
                                 View row = null;
                                 try {
                                     row = (View) XposedHelpers.getObjectField(holder, "itemView");
@@ -1293,11 +1311,6 @@ public class CustomAvatarFeature extends BaseFeature {
                     XposedHelpers.findAndHookMethod(clazz, "onAttachedToWindow", hook);
                 } catch (Exception e) {
                     AppLogger.d(TAG, "hook onAttachedToWindow 跳过: " + e.getMessage());
-                }
-                try {
-                    XposedHelpers.findAndHookMethod(clazz, "onLayout", boolean.class, int.class, int.class, int.class, int.class, hook);
-                } catch (Exception e) {
-                    AppLogger.d(TAG, "hook onLayout 跳过: " + e.getMessage());
                 }
                 AppLogger.i(TAG, "已成功挂载 " + clsName + " 资料卡探针！");
             } catch (Throwable t) {
@@ -1759,6 +1772,12 @@ public class CustomAvatarFeature extends BaseFeature {
         }
     }
 
+    private static volatile Field sRecentPeerUinField = null;
+    private static volatile Field sRecentPeerUidField = null;
+    private static volatile Method sRecentGetPeerUinMethod = null;
+    private static volatile Method sRecentGetPeerUidMethod = null;
+    private static volatile boolean sRecentContactInfoFieldsResolved = false;
+
     private void hookRecentContactInfo(ClassLoader cl) {
         try {
             Class<?> recentClass = XposedHelpers.findClassIfExists(
@@ -1771,18 +1790,50 @@ public class CustomAvatarFeature extends BaseFeature {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                         if (!isEnabledRuntime()) return;
+                        if (!sRecentContactInfoFieldsResolved) {
+                            synchronized (CustomAvatarFeature.class) {
+                                if (!sRecentContactInfoFieldsResolved) {
+                                    Class<?> cls = param.thisObject.getClass();
+                                    sRecentPeerUinField = XposedHelpers.findFieldIfExists(cls, "peerUin");
+                                    if (sRecentPeerUinField != null) sRecentPeerUinField.setAccessible(true);
+                                    sRecentGetPeerUinMethod = XposedHelpers.findMethodExactIfExists(cls, "getPeerUin");
+                                    if (sRecentGetPeerUinMethod != null) sRecentGetPeerUinMethod.setAccessible(true);
+                                    sRecentPeerUidField = XposedHelpers.findFieldIfExists(cls, "peerUid");
+                                    if (sRecentPeerUidField != null) sRecentPeerUidField.setAccessible(true);
+                                    sRecentGetPeerUidMethod = XposedHelpers.findMethodExactIfExists(cls, "getPeerUid");
+                                    if (sRecentGetPeerUidMethod != null) sRecentGetPeerUidMethod.setAccessible(true);
+                                    sRecentContactInfoFieldsResolved = true;
+                                }
+                            }
+                        }
+
                         long peerUin = 0L;
                         String peerUid = null;
                         try {
-                            peerUin = XposedHelpers.getLongField(param.thisObject, "peerUin");
-                        } catch (Exception e) {
-                            // 字段peerUin读取
+                            if (sRecentPeerUinField != null) {
+                                Object val = sRecentPeerUinField.get(param.thisObject);
+                                if (val instanceof Number) peerUin = ((Number) val).longValue();
+                            }
+                        } catch (Throwable ignored) {}
+                        if (peerUin == 0L && sRecentGetPeerUinMethod != null) {
+                            try {
+                                Object val = sRecentGetPeerUinMethod.invoke(param.thisObject);
+                                if (val instanceof Number) peerUin = ((Number) val).longValue();
+                            } catch (Throwable ignored) {}
                         }
                         try {
-                            peerUid = (String) XposedHelpers.getObjectField(param.thisObject, "peerUid");
-                        } catch (Exception e) {
-                            // 字段peerUid读取
+                            if (sRecentPeerUidField != null) {
+                                Object val = sRecentPeerUidField.get(param.thisObject);
+                                if (val instanceof String) peerUid = (String) val;
+                            }
+                        } catch (Throwable ignored) {}
+                        if (peerUid == null && sRecentGetPeerUidMethod != null) {
+                            try {
+                                Object val = sRecentGetPeerUidMethod.invoke(param.thisObject);
+                                if (val instanceof String) peerUid = (String) val;
+                            } catch (Throwable ignored) {}
                         }
+
                         if (peerUin > 0 && peerUid != null) {
                             UidUinHelper.bindUinAndUid(String.valueOf(peerUin), peerUid);
                         }
@@ -1791,6 +1842,7 @@ public class CustomAvatarFeature extends BaseFeature {
                             String customPath = RemoteConfigHelper.getCustomAvatarPath(targetId);
                             if (customPath != null) {
                                 param.setResult(customPath);
+                                AppLogger.i(TAG, "【RecentContactInfo头像重定向成功】target=" + targetId + " -> " + customPath);
                             }
                         }
                     }
@@ -1849,6 +1901,7 @@ public class CustomAvatarFeature extends BaseFeature {
 
     private static void applyAvatarToRowView(View row, String uin, Bitmap bm) {
         if (row == null || uin == null || bm == null) return;
+        row.setTag(ID_CUSTOM_AVATAR_TAG, Boolean.TRUE);
         // 1. 优先定位现代专属头像容器（QQProAvatarView / VasAvatar / AvatarLayout / RecentAvatarViewWrapper / AsyncImageView / FeedProAvatar / QzoneAvatar）
         for (View v : findAllViews(row)) {
             String clsName = v.getClass().getName();
@@ -1894,6 +1947,11 @@ public class CustomAvatarFeature extends BaseFeature {
 
     private static void clearAvatarFromRowView(View row) {
         if (row == null) return;
+        // 关键性能优化：若当前条目从未绑定过自定义头像，O(1) 瞬时短路跳过，彻底避免滚动时全量 View 树递归！
+        if (row.getTag(ID_CUSTOM_AVATAR_TAG) == null) {
+            return;
+        }
+        row.setTag(ID_CUSTOM_AVATAR_TAG, null);
         for (View v : findAllViews(row)) {
             String clsName = v.getClass().getName();
             if (clsName.contains("QQProAvatarView") || clsName.contains("VasAvatar") || clsName.contains("AvatarLayout")
@@ -2010,43 +2068,43 @@ public class CustomAvatarFeature extends BaseFeature {
                                     String custom = RemoteConfigHelper.getCustomAvatarPath(rawId);
                                     if (custom != null) {
                                         Bitmap bm = getOrCreateCircleBitmap(rawId, custom);
-                                        if (bm != null) {
-                                            applyAvatarToRowView(row, rawId, bm);
-                                        }
-                                    } else {
-                                        clearAvatarFromRowView(row);
-                                    }
-                                }
-                            }
-                        });
-                    } else if ("getChildView".equals(mNameCheck(m)) && m.getParameterTypes().length == 5) {
-                        XposedBridge.hookMethod(m, new XC_MethodHook() {
-                            @Override
-                            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                                if (!isEnabledRuntime()) return;
-                                View row = (View) param.getResult();
-                                if (row == null) return;
-                                Object adapter = param.thisObject;
-                                int gPos = (Integer) param.args[0];
-                                int cPos = (Integer) param.args[1];
-                                String rawId = null;
-                                try {
-                                    Object item = XposedHelpers.callMethod(adapter, "getChild", gPos, cPos);
-                                    rawId = extractRawIdFromObject(item);
-                                } catch (Exception e) {
-                                    // 试探getChild
-                                }
-                                if (rawId != null) {
-                                    String custom = RemoteConfigHelper.getCustomAvatarPath(rawId);
-                                    if (custom != null) {
-                                        Bitmap bm = getOrCreateCircleBitmap(rawId, custom);
-                                        if (bm != null) {
-                                            applyAvatarToRowView(row, rawId, bm);
-                                        }
-                                    } else {
-                                        clearAvatarFromRowView(row);
-                                    }
-                                }
+                                         if (bm != null) {
+                                             applyAvatarToRowView(row, rawId, bm);
+                                         }
+                                     } else {
+                                         clearAvatarFromRowView(row);
+                                     }
+                                 }
+                             }
+                         });
+                     } else if ("getChildView".equals(mNameCheck(m)) && m.getParameterTypes().length == 5) {
+                         XposedBridge.hookMethod(m, new XC_MethodHook() {
+                             @Override
+                             protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                                 if (!isEnabledRuntime()) return;
+                                 View row = (View) param.getResult();
+                                 if (row == null) return;
+                                 Object adapter = param.thisObject;
+                                 int gPos = (Integer) param.args[0];
+                                 int cPos = (Integer) param.args[1];
+                                 String rawId = null;
+                                 try {
+                                     Object item = XposedHelpers.callMethod(adapter, "getChild", gPos, cPos);
+                                     rawId = extractRawIdFromObject(item);
+                                 } catch (Exception e) {
+                                     // 试探getChild
+                                 }
+                                 if (rawId != null) {
+                                     String custom = RemoteConfigHelper.getCustomAvatarPath(rawId);
+                                     if (custom != null) {
+                                         Bitmap bm = getOrCreateCircleBitmap(rawId, custom);
+                                         if (bm != null) {
+                                             applyAvatarToRowView(row, rawId, bm);
+                                         }
+                                     } else {
+                                         clearAvatarFromRowView(row);
+                                     }
+                                 }
                             }
                         });
                     }
@@ -2252,20 +2310,29 @@ public class CustomAvatarFeature extends BaseFeature {
                     // 1. 优先尝试从 Option 实例的 targetView 或 model 提取目标 UIN
                     String targetId = null;
                     try {
-                        Object v = XposedHelpers.callMethod(param.thisObject, "getTargetView");
-                        if (v instanceof View) targetId = extractRawIdFromObject(v);
-                    } catch (Exception ignored) {}
+                        Method mGetView = XposedHelpers.findMethodExactIfExists(param.thisObject.getClass(), "getTargetView");
+                        if (mGetView != null) {
+                            Object v = mGetView.invoke(param.thisObject);
+                            if (v instanceof View) targetId = extractRawIdFromObject(v);
+                        }
+                    } catch (Throwable ignored) {}
                     if (targetId == null) {
                         try {
-                            Object v = XposedHelpers.getObjectField(param.thisObject, "targetView");
-                            if (v instanceof View) targetId = extractRawIdFromObject(v);
-                        } catch (Exception ignored) {}
+                            Field fView = XposedHelpers.findFieldIfExists(param.thisObject.getClass(), "targetView");
+                            if (fView != null) {
+                                Object v = fView.get(param.thisObject);
+                                if (v instanceof View) targetId = extractRawIdFromObject(v);
+                            }
+                        } catch (Throwable ignored) {}
                     }
                     if (targetId == null) {
                         try {
-                            Object m = XposedHelpers.getObjectField(param.thisObject, "model");
-                            targetId = extractRawIdFromObject(m);
-                        } catch (Exception ignored) {}
+                            Field fModel = XposedHelpers.findFieldIfExists(param.thisObject.getClass(), "model");
+                            if (fModel != null) {
+                                Object m = fModel.get(param.thisObject);
+                                targetId = extractRawIdFromObject(m);
+                            }
+                        } catch (Throwable ignored) {}
                     }
                     if (targetId != null) {
                         String customPath = RemoteConfigHelper.getCustomAvatarPath(targetId);

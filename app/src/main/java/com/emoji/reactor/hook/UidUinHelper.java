@@ -80,6 +80,8 @@ public class UidUinHelper {
                 if (uin != null && !uin.isEmpty()) {
                     String uid = getUidFromUin(uin);
                     if (uid != null && !uid.isEmpty()) {
+                        uinToUidMap.put(uin, uid);
+                        uidToUinMap.put(uid, uin);
                         RemoteConfigHelper.linkUidToUin(uid, uin);
                         AppLogger.i(TAG, "【主动预热完成】UIN=" + uin + " <=> UID=" + uid);
                     } else {
